@@ -140,6 +140,12 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    fn inc_syscall_count(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let cur_task_id = inner.current_task;
+        inner.tasks[cur_task_id].syscall_count[syscall_id] += 1;
+    }
 }
 
 /// Run the first task in task list.
@@ -173,4 +179,9 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Increment the syscall count for the given syscall ID.
+pub fn inc_syscall_count(syscall_id: usize) {
+    TASK_MANAGER.inc_syscall_count(syscall_id);
 }
