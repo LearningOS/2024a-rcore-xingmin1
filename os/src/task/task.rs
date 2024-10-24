@@ -12,9 +12,15 @@ pub struct TaskControlBlock {
     /// The task context
     pub task_cx: TaskContext,
     /// The time when the first schedule occurs
-    pub first_schedule_time: usize,
+    pub first_schedule_time: FirstScheduleTime,
     /// Array to count the number of each type of syscall
     pub syscall_count: [u32; MAX_SYSCALL_NUM],
+}
+
+#[derive(Copy, Clone, PartialEq)]
+pub enum FirstScheduleTime {
+    Undefined,
+    Ms(usize)
 }
 
 /// The status of a task
