@@ -48,6 +48,17 @@ pub struct TaskManagerInner {
     current_task: usize,
 }
 
+/// Task information
+#[allow(dead_code)]
+pub struct TaskInfo {
+    /// Task status in it's life cycle
+    status: TaskStatus,
+    /// The numbers of syscall called by task
+    syscall_times: [u32; MAX_SYSCALL_NUM],
+    /// Total running time of task
+    time: usize,
+}
+
 lazy_static! {
     /// Global variable: TASK_MANAGER
     pub static ref TASK_MANAGER: TaskManager = {
@@ -146,6 +157,16 @@ impl TaskManager {
         let cur_task_id = inner.current_task;
         inner.tasks[cur_task_id].syscall_count[syscall_id] += 1;
     }
+
+    fn set_task_info(&self, task_info: &mut TaskInfo) {
+        let cur_time = get_time_ms();
+        let inner = self.inner.exclusive_access();
+        let cur_task_id = inner.current_task;
+        let cur_task = inner.tasks[cur_task_id];
+        task_info.status = TaskStatus::Running;
+        task_info.time = cur_time - cur_task.first_schedule_time;
+        task_info.syscall_times.copy_from_slice(&cur_task.syscall_count);
+    }
 }
 
 /// Run the first task in task list.
@@ -184,4 +205,13 @@ pub fn exit_current_and_run_next() {
 /// Increment the syscall count for the given syscall ID.
 pub fn inc_syscall_count(syscall_id: usize) {
     TASK_MANAGER.inc_syscall_count(syscall_id);
+}
+
+/// Set the task information for the current running task.
+///
+/// # Arguments
+///
+/// * `task_info` - A mutable reference to a `TaskInfo` struct where the task information will be stored.
+pub fn set_task_info(task_info: &mut TaskInfo) {
+    TASK_MANAGER.set_task_info(task_info);
 }
