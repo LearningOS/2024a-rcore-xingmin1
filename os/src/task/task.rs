@@ -1,11 +1,11 @@
 //! Types related to task management
 
-use crate::config::MAX_SYSCALL_NUM;
+use alloc::collections::btree_map::BTreeMap;
 
 use super::TaskContext;
 
 /// The task control block (TCB) of a task.
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct TaskControlBlock {
     /// The task status in it's lifecycle
     pub task_status: TaskStatus,
@@ -14,7 +14,7 @@ pub struct TaskControlBlock {
     /// The time when the first schedule occurs
     pub first_schedule_time: FirstScheduleTime,
     /// Array to count the number of each type of syscall
-    pub syscall_count: [u32; MAX_SYSCALL_NUM],
+    pub syscall_count: BTreeMap<usize, u32>,
 }
 
 #[derive(Copy, Clone, PartialEq)]

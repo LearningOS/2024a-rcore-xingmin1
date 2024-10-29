@@ -18,6 +18,7 @@ use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use crate::timer::get_time_ms;
+use alloc::collections::btree_map::BTreeMap;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -63,16 +64,14 @@ lazy_static! {
     /// Global variable: TASK_MANAGER
     pub static ref TASK_MANAGER: TaskManager = {
         let num_app = get_num_app();
-        let mut tasks = [TaskControlBlock {
-            task_cx: TaskContext::zero_init(),
-            task_status: TaskStatus::UnInit,
-            first_schedule_time: task::FirstScheduleTime::Undefined,
-            syscall_count: [0; MAX_SYSCALL_NUM],
-        }; MAX_APP_NUM];
-        for (i, task) in tasks.iter_mut().enumerate() {
-            task.task_cx = TaskContext::goto_restore(init_app_cx(i));
-            task.task_status = TaskStatus::Ready;
-        }
+        let tasks = core::array::from_fn(|i| {
+            TaskControlBlock {
+                task_cx: TaskContext::goto_restore(init_app_cx(i)),
+                task_status: TaskStatus::Ready,
+                first_schedule_time: task::FirstScheduleTime::Undefined,
+                syscall_count: BTreeMap::new(),
+            }
+        });
         TaskManager {
             num_app,
             inner: unsafe {
@@ -157,21 +156,24 @@ impl TaskManager {
     fn inc_syscall_count(&self, syscall_id: usize) {
         let mut inner = self.inner.exclusive_access();
         let cur_task_id = inner.current_task;
-        inner.tasks[cur_task_id].syscall_count[syscall_id] += 1;
+        *inner.tasks[cur_task_id].syscall_count.entry(syscall_id).or_insert(0) += 1;
     }
 
     fn set_task_info(&self, task_info: &mut TaskInfo) {
         let cur_time = get_time_ms();
         let inner = self.inner.exclusive_access();
         let cur_task_id = inner.current_task;
-        let cur_task = inner.tasks[cur_task_id];
+        let cur_task = &inner.tasks[cur_task_id];
         task_info.status = TaskStatus::Running;
         // task_info.time = cur_time - cur_task.first_schedule_time;
         task_info.time = match cur_task.first_schedule_time {
             task::FirstScheduleTime::Ms(t) => cur_time - t,
             task::FirstScheduleTime::Undefined => panic!(),
         };
-        task_info.syscall_times.copy_from_slice(&cur_task.syscall_count);
+        for (key, value) in &cur_task.syscall_count {
+            assert!(*key <= MAX_SYSCALL_NUM);
+            task_info.syscall_times[*key] = *value;
+        }
     }
 }
 
