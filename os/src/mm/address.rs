@@ -234,15 +234,29 @@ impl<T> SimpleRange<T>
 where
     T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
 {
+    /// Creates a new range with the given start and end values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `start` is greater than `end`.
     pub fn new(start: T, end: T) -> Self {
         assert!(start <= end, "start {:?} > end {:?}!", start, end);
         Self { l: start, r: end }
     }
+
+    /// Returns the start value of the range.
     pub fn get_start(&self) -> T {
         self.l
     }
+
+    /// Returns the end value of the range.
     pub fn get_end(&self) -> T {
         self.r
+    }
+
+    /// Checks if the current range overlaps with another range.
+    pub fn overlap(&self, range2: &Self) -> bool {
+        self.l < range2.r && range2.l < self.r
     }
 }
 impl<T> IntoIterator for SimpleRange<T>

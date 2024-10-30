@@ -88,9 +88,19 @@ pub enum FirstScheduleTime {
 }
 
 impl TaskControlBlockInner {
+    /// get the memory set
+    pub fn get_memory_set_mut(&mut self) -> &'static mut MemorySet {
+        let ms = &mut self.memory_set as *mut MemorySet;
+        unsafe {
+            &mut *ms
+        }
+    }
+
+    /// get the trap context
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()
     }
+    /// get the user token
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
     }
@@ -181,21 +191,23 @@ impl TaskControlBlock {
         inner.memory_set = memory_set;
         // update trap_cx ppn
         inner.trap_cx_ppn = trap_cx_ppn;
+        // initialize base_size
+        inner.base_size = user_sp;
         // initialize trap_cx
-        let trap_cx = TrapContext::app_init_context(
+        let trap_cx = inner.get_trap_cx();
+        *trap_cx = TrapContext::app_init_context(
             entry_point,
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
             self.kernel_stack.get_top(),
             trap_handler as usize,
         );
-        *inner.get_trap_cx() = trap_cx;
-        // **** release current PCB
+        // **** release inner automatically
     }
 
     /// parent process fork the child process
-    pub fn fork(self: &Arc<TaskControlBlock>) -> Arc<TaskControlBlock> {
-        // ---- hold parent PCB lock
+    pub fn fork(self: &Arc<Self>) -> Arc<Self> {
+        // ---- access parent PCB exclusively
         let mut parent_inner = self.inner_exclusive_access();
         // copy user space(include trap context)
         let memory_set = MemorySet::from_existed_user(&parent_inner.memory_set);

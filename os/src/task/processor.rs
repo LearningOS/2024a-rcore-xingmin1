@@ -12,6 +12,7 @@ use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
 use crate::config::MAX_SYSCALL_NUM;
+use crate::mm::MemorySet;
 use crate::syscall::TaskInfo;
 use crate::task::task::FirstScheduleTime;
 use crate::timer::get_time_ms;
@@ -54,7 +55,7 @@ impl Processor {
             .syscall_count.entry(syscall_id).or_insert(0) += 1;
     }
 
-    fn get_task_info(&self) -> TaskInfo{
+    fn current_task_info(&self) -> TaskInfo{
         let cur_time = get_time_ms();
         let cur_task = self.current.as_ref().unwrap();
         let mut syscall_times = [0_u32; MAX_SYSCALL_NUM];
@@ -70,6 +71,11 @@ impl Processor {
             },
             syscall_times
         }
+    }
+
+    /// Get the current 'Running' task's memory set.
+    fn current_memory_set_mut(&self) -> &'static mut MemorySet {
+       self.current.as_ref().unwrap().inner_exclusive_access().get_memory_set_mut()
     }
 }
 
@@ -151,5 +157,9 @@ pub fn inc_syscall_count(syscall_id: usize) {
 ///
 /// * `task_info` - A mutable reference to a `TaskInfo` struct where the task information will be stored.
 pub fn get_task_info() -> TaskInfo {
-    PROCESSOR.exclusive_access().get_task_info()
+    PROCESSOR.exclusive_access().current_task_info()
+}
+/// Get the current 'Running' task's memory set.
+pub fn current_memory_set_mut() -> &'static mut MemorySet {
+    PROCESSOR.exclusive_access().current_memory_set_mut()
 }
