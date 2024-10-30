@@ -24,6 +24,7 @@ pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
 use crate::config::MAX_SYSCALL_NUM;
+use crate::mm::MemorySet;
 use crate::syscall::TaskInfo;
 use crate::task::task::FirstScheduleTime;
 use crate::timer::get_time_ms;
@@ -187,6 +188,13 @@ impl TaskManager {
             syscall_times
         }
     }
+
+    /// Get the current 'Running' task's memory set.
+    fn get_current_memory_set_mut(&self) -> &'static mut MemorySet {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.tasks[current].get_memory_set_mut()
+    }
 }
 
 /// Run the first task in task list.
@@ -232,6 +240,10 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
     TASK_MANAGER.get_current_trap_cx()
 }
 
+/// Get the current 'Running' task's memory set.
+pub fn current_memory_set_mut() -> &'static mut MemorySet {
+    TASK_MANAGER.get_current_memory_set_mut()
+}
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)

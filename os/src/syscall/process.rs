@@ -8,7 +8,9 @@ use crate::{
     },
     timer::get_time_us,
 };
-use crate::task::get_task_info;
+use crate::config::PAGE_SIZE;
+use crate::mm::{MapPermission, SimpleRange, VirtAddr};
+use crate::task::{current_memory_set_mut, get_task_info};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -85,16 +87,67 @@ pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     0
 }
 
+// start 没有按页大小对齐
+// port & !0x7 != 0 (port 其余位必须为0)
+// port & 0x7 = 0 (这样的内存无意义)
+// [start, start + len) 中存在已经被映射的页
+// 物理内存不足
+    fn validate_mmap_params(start: usize, port: usize) -> Result<(), isize> {
+        if start % PAGE_SIZE != 0 {
+            debug!("start is not aligned by page size");
+            return Err(-1);
+        }
+        if port & !0x7 != 0 {
+            debug!("the rest of port must be 0");
+            return Err(-1);
+        }
+        if port & 0x7 == 0 {
+            debug!("this memory is meaningless");
+            return Err(-1);
+        }
+        Ok(())
+    }
 // YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
     trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+    if let Err(err) = validate_mmap_params(start, port) {
+        return err;
+    }
+    let memory_set = current_memory_set_mut();
+    let (start_va, end_va) = (VirtAddr::from(start), VirtAddr::from(start + len));
+    let range = SimpleRange::new(start_va.floor(), end_va.ceil());
+    if memory_set.map_area_overleap(range) {
+        debug!("overleap with existing mapped area");
+        return -1;
+    }
+    let mut permission = MapPermission::U;
+    if port & 1 == 1{
+        permission |= MapPermission::R;
+    }  
+    if port >> 1 & 1 == 1 {
+        permission |= MapPermission::W;
+    }
+    if port >> 2 & 1 == 1 {
+        permission |= MapPermission::X;
+    }
+    memory_set.insert_framed_area(start_va, end_va, permission);
+    0
 }
 
 // YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
+pub fn sys_munmap(start: usize, len: usize) -> isize {
     trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    if start % PAGE_SIZE != 0 {
+        debug!("start is not aligned by page size");
+        return -1;
+    }
+
+    let memory_set = current_memory_set_mut();
+    if memory_set.remove_framed_areas(VirtAddr(start).floor(), VirtAddr(start + len).ceil()) {
+        0
+    } else {
+        -1
+    }
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {

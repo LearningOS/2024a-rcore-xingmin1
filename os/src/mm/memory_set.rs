@@ -1,6 +1,6 @@
 //! Implementation of [`MapArea`] and [`MemorySet`].
 
-use super::{frame_alloc, FrameTracker};
+use super::{frame_alloc, FrameTracker, SimpleRange};
 use super::{PTEFlags, PageTable, PageTableEntry};
 use super::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use super::{StepByOne, VPNRange};
@@ -12,6 +12,7 @@ use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::arch::asm;
+use core::cmp::Ordering;
 use lazy_static::*;
 use riscv::register::satp;
 
@@ -262,6 +263,46 @@ impl MemorySet {
             false
         }
     }
+
+    /// Check if the given `map_area` overlaps with any existing areas in the memory set.
+    pub fn map_area_overleap(&self, range: SimpleRange<VirtPageNum>) -> bool {
+        // !self.areas.iter().any(|area| area.vpn_range.overlap(&range))
+        self.areas.iter().any(|area| area.vpn_range.overlap(&range))
+    }
+
+    /// Get all map areas that overlap with the given range.
+    pub fn get_map_area_overleap(&self, range: SimpleRange<VirtPageNum>) -> Vec<&MapArea> {
+        self.areas.iter().filter(|area| area.vpn_range.overlap(&range)).collect()
+    }
+    
+    /// Remove the given map areas from the memory set.
+    pub fn remove_framed_areas(&mut self, start: VirtPageNum, end: VirtPageNum) -> bool {
+        let map_areas = self.get_map_area_overleap(SimpleRange::new(start, end));
+        let ma_len: usize = map_areas.iter().map(|ma| ma.get_len()).sum();
+        let len = end.0 - start.0;
+        match ma_len.cmp(&len) {
+            Ordering::Less => {
+                debug!("some memory is not mapped: {} < {} start: {:#x}, end: {:#x}", ma_len, len, start.0, end.0);
+                // debug!("all mapped areas: {:#?}", self.areas);
+                return false;
+            }
+            Ordering::Greater => {
+                debug!("some memory areas will be truncated: {} > {} start: {:#x}, end: {:#x}", ma_len, len, start.0, end.0);
+                return false;
+            }
+            Ordering::Equal => {}
+        }
+        
+        self.areas.retain_mut(|area| {
+            if area.vpn_range.overlap(&SimpleRange::new(start, end)) {
+                area.unmap(&mut self.page_table);
+                false
+            } else {
+                true
+            }
+        });
+        true
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
@@ -355,6 +396,11 @@ impl MapArea {
             }
             current_vpn.step();
         }
+    }
+
+    /// Get the length of the map area.
+    pub fn get_len(&self) -> usize {
+        self.vpn_range.get_end().0 - self.vpn_range.get_start().0
     }
 }
 
