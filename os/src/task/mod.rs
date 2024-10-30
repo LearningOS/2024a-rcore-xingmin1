@@ -23,6 +23,10 @@ use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
+use crate::config::MAX_SYSCALL_NUM;
+use crate::syscall::TaskInfo;
+use crate::task::task::FirstScheduleTime;
+use crate::timer::get_time_ms;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -79,6 +83,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
+        next_task.first_schedule_time = FirstScheduleTime::MS(get_time_ms());
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -141,6 +146,9 @@ impl TaskManager {
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
+            if inner.tasks[next].first_schedule_time == FirstScheduleTime::Undefined {
+                inner.tasks[next].first_schedule_time = FirstScheduleTime::MS(get_time_ms());
+            }
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
             drop(inner);
@@ -151,6 +159,32 @@ impl TaskManager {
             // go back to user mode
         } else {
             panic!("All applications completed!");
+        }
+    }
+
+    fn inc_syscall_count(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let cur_task_id = inner.current_task;
+        *inner.tasks[cur_task_id].syscall_count.entry(syscall_id).or_insert(0) += 1;
+    }
+
+    fn get_task_info(&self) -> TaskInfo{
+        let cur_time = get_time_ms();
+        let inner = self.inner.exclusive_access();
+        let cur_task_id = inner.current_task;
+        let cur_task = &inner.tasks[cur_task_id];
+        let mut syscall_times = [0_u32; MAX_SYSCALL_NUM];
+        for (key, value) in &cur_task.syscall_count {
+            assert!(*key <= MAX_SYSCALL_NUM);
+            syscall_times[*key] = *value;
+        }
+        TaskInfo {
+            status: TaskStatus::Running,
+            time: match cur_task.first_schedule_time {
+                FirstScheduleTime::MS(t) => cur_time - t,
+                FirstScheduleTime::Undefined => panic!(),
+            },
+            syscall_times
         }
     }
 }
@@ -201,4 +235,18 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Increment the syscall count for the given syscall ID.
+pub fn inc_syscall_count(syscall_id: usize) {
+    TASK_MANAGER.inc_syscall_count(syscall_id);
+}
+
+/// Set the task information for the current running task.
+///
+/// # Arguments
+///
+/// * `task_info` - A mutable reference to a `TaskInfo` struct where the task information will be stored.
+pub fn get_task_info() -> TaskInfo {
+    TASK_MANAGER.get_task_info()
 }

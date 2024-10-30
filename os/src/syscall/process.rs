@@ -8,6 +8,7 @@ use crate::{
     },
     timer::get_time_us,
 };
+use crate::task::get_task_info;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -20,11 +21,11 @@ pub struct TimeVal {
 #[allow(dead_code)]
 pub struct TaskInfo {
     /// Task status in it's life cycle
-    status: TaskStatus,
+    pub status: TaskStatus,
     /// The numbers of syscall called by task
-    syscall_times: [u32; MAX_SYSCALL_NUM],
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
     /// Total running time of task
-    time: usize,
+    pub time: usize,
 }
 
 /// task exits and submit an exit code
@@ -56,7 +57,7 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     let mut tv_slice = unsafe {
         core::slice::from_raw_parts(
             &temp_tv as *const _ as *const u8,
-            core::mem::size_of::<TimeVal>(),
+            tv_size,
         )
     };
     for buffer in buffers {
@@ -69,9 +70,19 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
-pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
+pub fn sys_task_info(ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
-    -1
+    let ti_size = core::mem::size_of::<TaskInfo>();
+    let task_info_temp = get_task_info();
+    let mut task_info_slice = unsafe {
+        core::slice::from_raw_parts(&task_info_temp as * const _ as * const u8, ti_size)
+    };
+    let buffers = translated_byte_buffer(current_user_token(), ti as *const u8, ti_size);
+    for buffer in buffers {
+        buffer.copy_from_slice(&task_info_slice[..buffer.len()]);
+        task_info_slice = &task_info_slice[buffer.len()..];
+    }
+    0
 }
 
 // YOUR JOB: Implement mmap.
