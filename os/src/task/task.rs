@@ -1,4 +1,6 @@
 //! Types related to task management & Functions for completely changing TCB
+
+use alloc::collections::BTreeMap;
 use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT_BASE;
@@ -68,6 +70,18 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// The time when the first schedule occurs
+    pub first_schedule_time: FirstScheduleTime,
+
+    /// BTreeMap to count the number of each type of syscall
+    pub syscall_count: BTreeMap<usize, u32>,
+}
+
+#[derive(Copy, Clone, PartialEq)]
+pub enum FirstScheduleTime {
+    Undefined,
+    MS(usize)
 }
 
 impl TaskControlBlockInner {
@@ -118,6 +132,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    first_schedule_time: FirstScheduleTime::Undefined,
+                    syscall_count: BTreeMap::new(),
                 })
             },
         };
@@ -191,6 +207,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    first_schedule_time: FirstScheduleTime::Undefined,
+                    syscall_count: BTreeMap::new(),
                 })
             },
         });

@@ -11,6 +11,10 @@ use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
+use crate::config::MAX_SYSCALL_NUM;
+use crate::syscall::TaskInfo;
+use crate::task::task::FirstScheduleTime;
+use crate::timer::get_time_ms;
 
 /// Processor management structure
 pub struct Processor {
@@ -44,6 +48,29 @@ impl Processor {
     pub fn current(&self) -> Option<Arc<TaskControlBlock>> {
         self.current.as_ref().map(Arc::clone)
     }
+
+    fn inc_syscall_count(&self, syscall_id: usize) {
+        *self.current.as_ref().unwrap().inner_exclusive_access()
+            .syscall_count.entry(syscall_id).or_insert(0) += 1;
+    }
+
+    fn get_task_info(&self) -> TaskInfo{
+        let cur_time = get_time_ms();
+        let cur_task = self.current.as_ref().unwrap();
+        let mut syscall_times = [0_u32; MAX_SYSCALL_NUM];
+        for (key, value) in &cur_task.inner_exclusive_access().syscall_count {
+            assert!(*key <= MAX_SYSCALL_NUM);
+            syscall_times[*key] = *value;
+        }
+        TaskInfo {
+            status: TaskStatus::Running,
+            time: match cur_task.inner_exclusive_access().first_schedule_time {
+                FirstScheduleTime::MS(t) => cur_time - t,
+                FirstScheduleTime::Undefined => panic!(),
+            },
+            syscall_times
+        }
+    }
 }
 
 lazy_static! {
@@ -61,6 +88,9 @@ pub fn run_tasks() {
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            if task_inner.first_schedule_time == FirstScheduleTime::Undefined {
+                task_inner.first_schedule_time = FirstScheduleTime::MS(get_time_ms());
+            }
             // release coming task_inner manually
             drop(task_inner);
             // release coming task TCB manually
@@ -108,4 +138,18 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+/// Increment the syscall count for the given syscall ID.
+pub fn inc_syscall_count(syscall_id: usize) {
+    PROCESSOR.exclusive_access().inc_syscall_count(syscall_id);
+}
+
+/// Set the task information for the current running task.
+///
+/// # Arguments
+///
+/// * `task_info` - A mutable reference to a `TaskInfo` struct where the task information will be stored.
+pub fn get_task_info() -> TaskInfo {
+    PROCESSOR.exclusive_access().get_task_info()
 }
