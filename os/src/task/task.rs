@@ -85,6 +85,14 @@ pub enum FirstScheduleTime {
 }
 
 impl TaskControlBlockInner {
+    /// get the memory set
+    pub fn get_memory_set_mut(&mut self) -> &'static mut MemorySet {
+        let ms = &mut self.memory_set as *mut MemorySet;
+        unsafe {
+            &mut *ms
+        }
+    }
+    
     /// get the trap context
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()
