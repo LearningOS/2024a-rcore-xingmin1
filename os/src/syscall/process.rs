@@ -12,7 +12,7 @@ use crate::{
 };
 use crate::config::PAGE_SIZE;
 use crate::mm::{translated_byte_buffer, MapPermission, SimpleRange, VirtAddr};
-use crate::task::{current_memory_set_mut, get_task_info};
+use crate::task::{current_memory_set_mut, get_task_info, TaskControlBlock};
 use crate::timer::get_time_us;
 
 #[repr(C)]
@@ -248,12 +248,26 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
+pub fn sys_spawn(path: *const u8) -> isize {
     trace!(
         "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    let new_task;
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        new_task = Arc::new(TaskControlBlock::new(data));
+    } else {
+        return -1
+    }
+    let current_task = current_task().unwrap();
+    current_task.inner_exclusive_access().children.push(new_task.clone());
+    new_task.inner_exclusive_access().parent = Some(Arc::downgrade(&current_task));
+    let new_pid = new_task.pid.0;
+    // add new task to scheduler
+    add_task(new_task);
+    new_pid as isize
 }
 
 // YOUR JOB: Set task priority.
