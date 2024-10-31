@@ -11,6 +11,8 @@ use crate::{
         suspend_current_and_run_next, TaskStatus,
     },
 };
+use crate::mm::translated_byte_buffer;
+use crate::timer::get_time_us;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -117,12 +119,29 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_get_time",
         current_task().unwrap().pid.0
     );
-    -1
+    let us = get_time_us();
+    let tv_size = core::mem::size_of::<TimeVal>();
+    let buffers = translated_byte_buffer(current_user_token(), ts as *const u8, tv_size);
+    let temp_tv = TimeVal {
+        sec: us / 1_000_000,
+        usec: us % 1_000_000,
+    };
+    let mut tv_slice = unsafe {
+        core::slice::from_raw_parts(
+            &temp_tv as *const _ as *const u8,
+            core::mem::size_of::<TimeVal>(),
+        )
+    };
+    for buffer in buffers {
+        buffer.copy_from_slice(&tv_slice[..buffer.len()]);
+        tv_slice = &tv_slice[buffer.len()..];
+    }
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
