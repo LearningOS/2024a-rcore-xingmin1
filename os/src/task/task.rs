@@ -1,9 +1,9 @@
 //! Types related to task management & Functions for completely changing TCB
 
 use alloc::collections::BTreeMap;
-use super::TaskContext;
+use super::{TaskContext};
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{BIG_STRIDE, TRAP_CONTEXT_BASE};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
@@ -24,6 +24,26 @@ pub struct TaskControlBlock {
 
     /// Mutable
     inner: UPSafeCell<TaskControlBlockInner>,
+}
+
+impl PartialEq<Self> for TaskControlBlock {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner_exclusive_access().stride_scheduling.stride == other.inner_exclusive_access().stride_scheduling.stride
+    }
+}
+
+impl Eq for TaskControlBlock {}
+
+impl Ord for TaskControlBlock {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.inner_exclusive_access().stride_scheduling.stride.cmp(&other.inner_exclusive_access().stride_scheduling.stride)
+    }
+}
+
+impl PartialOrd for TaskControlBlock {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl TaskControlBlock {
@@ -76,6 +96,9 @@ pub struct TaskControlBlockInner {
 
     /// BTreeMap to count the number of each type of syscall
     pub syscall_count: BTreeMap<usize, u32>,
+    
+    /// Stride scheduling
+    pub stride_scheduling: StrideScheduling,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -107,6 +130,16 @@ impl TaskControlBlockInner {
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
     }
+    
+    /// set priority
+    pub fn set_priority(&mut self, priority: usize) {
+        self.stride_scheduling.set_priority(priority);
+    }
+    
+    /// increase stride value by a pass
+    pub fn pass(&mut self) {
+        self.stride_scheduling.pass();
+    }
 }
 
 impl TaskControlBlock {
@@ -124,6 +157,14 @@ impl TaskControlBlock {
         let pid_handle = pid_alloc();
         let kernel_stack = kstack_alloc();
         let kernel_stack_top = kernel_stack.get_top();
+
+        let stride_scheduling = if let Some(task) = peek_task() {
+            let ss = task.inner_exclusive_access().stride_scheduling;
+            StrideScheduling::new_with_stride(ss.get_stride())
+        } else {
+            StrideScheduling::new()
+        };
+
         // push a task context which goes to trap_return to the top of kernel stack
         let task_control_block = Self {
             pid: pid_handle,
@@ -142,6 +183,7 @@ impl TaskControlBlock {
                     program_brk: user_sp,
                     first_schedule_time: FirstScheduleTime::Undefined,
                     syscall_count: BTreeMap::new(),
+                    stride_scheduling,
                 })
             },
         };
@@ -217,6 +259,7 @@ impl TaskControlBlock {
                     program_brk: parent_inner.program_brk,
                     first_schedule_time: FirstScheduleTime::Undefined,
                     syscall_count: BTreeMap::new(),
+                    stride_scheduling: parent_inner.stride_scheduling,
                 })
             },
         });
@@ -275,4 +318,84 @@ pub enum TaskStatus {
     Running,
     /// exited
     Zombie,
+}
+
+use core::cmp::Ordering;
+use crate::task::manager::peek_task;
+
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+pub struct Stride(usize);
+
+impl PartialOrd for Stride {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+}
+
+impl Ord for Stride {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let diff: i128 = self.0 as i128 - other.0 as i128;
+        // println!("self: {}, other: {}, diff: {}",self.0, other.0, diff);
+        if diff < - (BIG_STRIDE as i128 / 2) {
+            Ordering::Greater
+        } else if diff < 0 {
+            Ordering::Less
+        } else if diff == 0 {
+            Ordering::Equal
+        } else if diff <= BIG_STRIDE as i128 / 2 {
+            Ordering::Greater
+        } else {
+            Ordering::Less
+        }
+        // self.0.cmp(&other.0)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct StrideScheduling {
+    /// The stride value of the process
+    stride: Stride,
+
+    /// Process priority, influences the pass value
+    priority: usize,
+
+    /// The increment value for the stride in each scheduling cycle
+    pass: usize,
+}
+
+impl Default for StrideScheduling {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StrideScheduling {
+    /// Create a new default StrideScheduling
+    pub fn new() -> Self {
+        Self {
+            stride: Stride(0),
+            priority: 16,
+            pass: BIG_STRIDE / 16,
+        }
+    }
+    
+    pub fn new_with_stride(stride: Stride) -> Self {
+        Self {
+            stride,
+            priority: 16,
+            pass: BIG_STRIDE / 16,
+        }
+    }
+    
+    pub fn set_priority(&mut self, priority: usize) {
+        self.priority = priority;
+        self.pass = BIG_STRIDE / priority;
+    }
+    
+    pub fn pass(&mut self) {
+        assert_eq!(self.pass, BIG_STRIDE / self.priority, "pass value is not correct, BIG_STRIDE: {}, priority: {}, pass: {}", BIG_STRIDE, self.priority, self.pass);
+        self.stride.0 = self.stride.0.wrapping_add(self.pass);
+    }
+    
+    pub fn get_stride(&self) -> Stride {
+        self.stride
+    }
 }

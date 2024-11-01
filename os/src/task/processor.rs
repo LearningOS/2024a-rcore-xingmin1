@@ -97,6 +97,7 @@ pub fn run_tasks() {
             if task_inner.first_schedule_time == FirstScheduleTime::Undefined {
                 task_inner.first_schedule_time = FirstScheduleTime::MS(get_time_ms());
             }
+            task_inner.pass();
             // release coming task_inner manually
             drop(task_inner);
             // release coming task TCB manually
