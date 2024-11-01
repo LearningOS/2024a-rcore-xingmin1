@@ -130,7 +130,7 @@ pub fn trap_return() -> ! {
             in("a0") trap_cx_ptr,
             in("a1") user_satp,
             options(noreturn)
-        );
+        )
     }
 }
 
