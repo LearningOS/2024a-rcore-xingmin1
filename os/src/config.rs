@@ -1,7 +1,4 @@
 //! Constants in the kernel
-
-use core::usize;
-
 #[allow(unused)]
 
 /// user app's stack size
