@@ -1,5 +1,6 @@
 //! Implementation of  [`ProcessControlBlock`]
 
+use alloc::collections::BTreeMap;
 use super::id::RecycleAllocator;
 use super::manager::insert_into_pid2process;
 use super::TaskControlBlock;
@@ -49,6 +50,18 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// deadlock detect
+    pub deadlock_detect: bool,
+    /// mutex allocation matrix
+    pub mutext_allocation: Vec<Vec<bool>>,
+    /// mutex need matrix
+    pub mutex_need: BTreeMap<usize, usize>,
+    /// semaphore init matrix
+    pub semaphore_init: Vec<usize>,
+    /// semaphore allocation matrix
+    pub semaphore_allocation: Vec<Vec<usize>>,
+    /// semaphore need matrix
+    pub semaphore_need: BTreeMap<usize, usize>,
 }
 
 impl ProcessControlBlockInner {
@@ -119,6 +132,12 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
+                    mutext_allocation: vec![Vec::new()],
+                    mutex_need: BTreeMap::new(),
+                    semaphore_allocation: vec![Vec::new()],
+                    semaphore_need: BTreeMap::new(),
+                    semaphore_init: Vec::new(),
                 })
             },
         });
@@ -245,6 +264,12 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
+                    mutext_allocation: vec![Vec::new()],
+                    mutex_need: BTreeMap::new(),
+                    semaphore_allocation: vec![Vec::new()],
+                    semaphore_need: BTreeMap::new(),
+                    semaphore_init: Vec::new(),
                 })
             },
         });
